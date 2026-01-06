@@ -1,0 +1,18 @@
+from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+imputer = SimpleImputer(strategy="median")
+
+X_train = imputer.fit_transform(X_train)
+X_test = imputer.transform(X_test)
+assert X.select_dtypes(include="object").shape[1] == 0
+import numpy as np
+
+baseline_pred = np.full(len(y_test), y_train.mean())
+rmse_baseline = np.sqrt(mean_squared_error(y_test, baseline_pred))
+
+rmse_baseline
