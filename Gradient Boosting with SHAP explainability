@@ -1,0 +1,80 @@
+from sklearn.ensemble import GradientBoostingRegressor
+
+X_gb = df_model.drop(columns=[target, "country"])
+y_gb = df_model[target]
+
+X_train_gb, X_test_gb, y_train_gb, y_test_gb = train_test_split(
+    X_gb, y_gb, test_size=0.2, random_state=42
+)
+
+imputer_gb = SimpleImputer(strategy="median")
+
+X_train_gb = imputer_gb.fit_transform(X_train_gb)
+X_test_gb = imputer_gb.transform(X_test_gb)
+
+gbr = GradientBoostingRegressor(
+    n_estimators=300,
+    learning_rate=0.05,
+    max_depth=3,
+    random_state=42
+)
+
+gbr.fit(X_train_gb, y_train_gb)
+
+import shap
+
+explainer = shap.Explainer(gbr)
+
+def compute_shap(country, increase_pct):
+    sim_df = df_model.copy()
+    sim_df["renewable_share"] *= (1 + increase_pct / 100)
+
+    X_sim = imputer.transform(sim_df[feature_cols])
+    shap_values = explainer(X_sim)
+
+    # Filter by country
+    mask = sim_df["country"] == country
+    shap_country = shap_values[mask]
+
+    return shap_country
+
+countries = sorted(df_model["country"].unique().tolist())
+
+import plotly.express as px
+
+def fossil_plot(results):
+    fig = px.bar(
+        results,
+        x="country",
+        y="fossil_share_pred",
+        title="Predicted Fossil Share After Renewable Increase",
+        labels={"fossil_share_pred": "Fossil Energy Share"},
+    )
+    return fig
+
+def generate_summary(results, pct):
+    best = results.iloc[0]
+    worst = results.iloc[-1]
+
+    summary = f"""
+Scenario: +{pct}% Renewable Expansion
+
+• Highest transition resilience: {best.country}  
+• Most fossil lock-in: {worst.country}
+
+• Average fossil share: {results.fossil_share_pred.mean():.2f}
+• Structural resistance observed in fossil-heavy economies
+
+Implication:
+Targeted policy + capital reallocation required for high-risk countries.
+"""
+    return summary
+
+feature_cols = X.columns.tolist()
+feature_cols
+
+y_pred_gb = gbr.predict(X_test_gb)
+
+rmse_gb = np.sqrt(mean_squared_error(y_test_gb, y_pred_gb))
+rmse_gb
+
