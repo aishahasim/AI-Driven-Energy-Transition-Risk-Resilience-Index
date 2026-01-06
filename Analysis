@@ -1,0 +1,256 @@
+import shap
+shap.initjs()
+
+explainer = shap.TreeExplainer(gbr)
+shap_values = explainer.shap_values(X_test)
+
+shap.summary_plot(
+    shap_values,
+    X_test,
+    feature_names=X.columns,
+    show=True
+)
+
+shap.dependence_plot(
+    "energy_diversification",
+    shap_values,
+    X_test,
+    feature_names=X.columns
+)
+
+# Keep numeric features only (same as training)
+X_full = df_model.drop(columns=["fossil_share", "country"])
+X_full = X_full.select_dtypes(include="number")
+
+X_full_imputed = imputer.transform(X_full)
+
+df_model["fossil_share_pred"] = gbr.predict(X_full_imputed)
+
+min_val = df_model["fossil_share_pred"].min()
+max_val = df_model["fossil_share_pred"].max()
+
+df_model["transition_risk_index"] = (
+    100 * (df_model["fossil_share_pred"] - min_val) / (max_val - min_val)
+)
+
+df_model["transition_resilience_score"] = 100 - df_model["transition_risk_index"]
+
+
+country_risk = (
+    df_model
+    .groupby("country")
+    .agg({
+        "transition_risk_index": "mean",
+        "transition_resilience_score": "mean",
+        "fossil_share": "mean",
+        "renewable_share": "mean"
+    })
+    .reset_index()
+    .sort_values("transition_risk_index", ascending=False)
+)
+
+country_risk
+def risk_tier(score):
+    if score >= 70:
+        return "High Risk"
+    elif score >= 40:
+        return "Medium Risk"
+    else:
+        return "Low Risk"
+
+country_risk["risk_tier"] = country_risk["transition_risk_index"].apply(risk_tier)
+
+def simulate_renewable_scenario(
+    df_model,
+    model,
+    imputer,
+    feature_cols,
+    increase_pct
+):
+    df_sim = df_model.copy()
+
+    # Apply renewable increase
+    df_sim["renewable_share"] = (
+        df_sim["renewable_share"] * (1 + increase_pct)
+    ).clip(upper=1.0)
+
+    # Build X using the SAME features as training
+    X_sim = df_sim[feature_cols]
+
+    # Impute missing values
+    X_sim_imp = imputer.transform(X_sim)
+
+    # Predict fossil share
+    df_sim["fossil_share_pred"] = model.predict(X_sim_imp)
+
+    return df_sim
+
+assert set(feature_cols) == set(X.columns)
+
+for pct in [0.1, 0.2, 0.3]:
+    sim = simulate_renewable_scenario(
+        df_model=df_model,
+        model=gbr,
+        imputer=imputer,
+        feature_cols=feature_cols,
+        increase_pct=pct
+    )
+
+    print(f"\nScenario: +{int(pct*100)}% renewables")
+    print(
+        sim.groupby("country")["fossil_share_pred"]
+        .mean()
+        .sort_values(ascending=False)
+    )
+
+baseline = simulate_renewable_scenario(
+    df_model, gbr, imputer, feature_cols, increase_pct=0.0
+)
+
+for pct in [0.1, 0.2, 0.3]:
+    sim = simulate_renewable_scenario(
+        df_model, gbr, imputer, feature_cols, increase_pct=pct
+    )
+
+    delta = sim["fossil_share_pred"] - baseline["fossil_share_pred"]
+
+    print(f"\nMarginal effect (+{int(pct*100)}% renewables)")
+    print(delta.sort_values())
+
+elasticity = (
+    (sim["fossil_share_pred"] - baseline["fossil_share_pred"])
+    / (baseline["renewable_share"] * pct)
+)
+
+elasticity.name = "renewable_fossil_elasticity"
+elasticity
+
+# Baseline prediction (no renewable increase)
+X_base = df_model[feature_cols]
+X_base_imp = imputer.transform(X_base)
+
+baseline_pred = pd.Series(
+    gbr.predict(X_base_imp),
+    index=df_model.index,
+    name="fossil_share_pred"
+)
+
+def simulate_renewable_scenario(
+    df_model,
+    model,
+    imputer,
+    feature_cols,
+    increase_pct
+):
+    df_sim = df_model.copy()
+
+    # Increase renewable share
+    df_sim["renewable_share"] = (
+        df_sim["renewable_share"] * (1 + increase_pct)
+    ).clip(upper=1.0)
+
+    X_sim = df_sim[feature_cols]
+    X_sim_imp = imputer.transform(X_sim)
+
+    sim_pred = pd.Series(
+        model.predict(X_sim_imp),
+        index=df_model.index,
+        name="fossil_share_pred"
+    )
+
+    return sim_pred
+
+marginal_effects = {}
+
+for pct in [0.1, 0.2, 0.3]:
+    sim_pred = simulate_renewable_scenario(
+        df_model=df_model,
+        model=gbr,
+        imputer=imputer,
+        feature_cols=feature_cols,
+        increase_pct=pct
+    )
+
+    marginal_effects[pct] = sim_pred - baseline_pred
+
+marginal_effects = {}
+
+for pct in [0.1, 0.2, 0.3]:
+    sim_pred = simulate_renewable_scenario(
+        df_model=df_model,
+        model=gbr,
+        imputer=imputer,
+        feature_cols=feature_cols,
+        increase_pct=pct
+    )
+
+    marginal_effects[pct] = sim_pred - baseline_pred
+
+import matplotlib.pyplot as plt
+
+for pct, effects in marginal_effects.items():
+    plt.figure()
+    plt.hist(effects, bins=40)
+    plt.axvline(0)
+    plt.title(f"Marginal Effect on Fossil Share (+{int(pct*100)}% Renewables)")
+    plt.xlabel("Δ Fossil Share")
+    plt.ylabel("Count")
+    plt.show()
+
+for pct, effects in marginal_effects.items():
+    ranking = (
+        effects
+        .groupby(df_model["country"])
+        .mean()
+        .sort_values()
+    )
+
+    print(f"\n🌍 Country Ranking (+{int(pct*100)}% Renewables)")
+    print("\nTop fossil reducers:")
+    print(ranking.head(5))
+    print("\nMost resistant countries:")
+    print(ranking.tail(5))
+
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+
+# Country-level summary (using +20% scenario as reference)
+country_effect = sim_20.groupby("country")["fossil_share_pred"].mean()
+baseline = df_model.groupby("country")["fossil_share"].mean()
+
+index_df = pd.DataFrame({
+    "fossil_share": baseline,
+    "renewable_resistance": country_effect - baseline
+})
+
+# Normalize
+scaler = MinMaxScaler()
+index_df_scaled = pd.DataFrame(
+    scaler.fit_transform(index_df),
+    index=index_df.index,
+    columns=index_df.columns
+)
+
+# Composite Risk Index
+index_df_scaled["Energy_Transition_Risk_Index"] = (
+    0.6 * index_df_scaled["fossil_share"] +
+    0.4 * index_df_scaled["renewable_resistance"]
+)
+
+# Sort
+index_df_scaled = index_df_scaled.sort_values(
+    "Energy_Transition_Risk_Index",
+    ascending=False
+)
+
+# Plot
+plt.figure(figsize=(10, 5))
+plt.bar(
+    index_df_scaled.index,
+    index_df_scaled["Energy_Transition_Risk_Index"]
+)
+plt.xticks(rotation=45)
+plt.title("Composite Energy Transition Risk Index")
+plt.ylabel("Risk Score (0–1)")
+plt.tight_layout()
+plt.show()
