@@ -1,0 +1,58 @@
+import pandas as pd
+import numpy as np
+
+def run_scenario(increase_pct):
+    sim_df = df_model.copy()
+
+    # Increase renewable share safely
+    sim_df["renewable_share"] = sim_df["renewable_share"] * (1 + increase_pct)
+
+    # Prepare features
+    X_sim = sim_df[feature_cols]
+    X_sim = imputer.transform(X_sim)
+
+    # Predict fossil share
+    sim_df["fossil_share_pred"] = gbr.predict(X_sim)
+
+    # Country-level aggregation
+    country_results = (
+        sim_df
+        .groupby("country")[["fossil_share_pred", "renewable_share"]]
+        .mean()
+        .reset_index()
+        .sort_values("fossil_share_pred")
+    )
+
+    return country_results
+
+def compute_risk_index(df):
+    df = df.copy()
+
+    # Normalize fossil share
+    df["risk_score"] = 100 * (
+        (df["fossil_share_pred"] - df["fossil_share_pred"].min()) /
+        (df["fossil_share_pred"].max() - df["fossil_share_pred"].min())
+    )
+
+    df["resilience_score"] = 100 - df["risk_score"]
+
+    return df[["country", "risk_score", "resilience_score"]]
+
+import gradio as gr
+
+def gradio_app(increase_pct):
+    increase_pct = increase_pct / 100  # slider gives %
+    
+    results = run_scenario(increase_pct)
+    risk_df = compute_risk_index(results)
+
+    top_reducers = results.head(3)
+    resistant = results.tail(3)
+
+    insight = (
+        f"Top fossil reducers: {', '.join(top_reducers.country)}\n"
+        f"Most resistant: {', '.join(resistant.country)}"
+    )
+
+    return results, risk_df, insight
+
