@@ -1,0 +1,29 @@
+pd.DataFrame({
+    "Model": ["Baseline", "Elastic Net", "Gradient Boosting"],
+    "RMSE": [rmse_baseline, rmse_enet, rmse_gb]
+})
+
+from sklearn.metrics import r2_score, mean_squared_error
+import numpy as np
+
+# Elastic Net predictions
+y_pred_enet = enet.predict(X_test)
+
+rmse_enet = np.sqrt(mean_squared_error(y_test, y_pred_enet))
+r2_enet = r2_score(y_test, y_pred_enet)
+
+rmse_enet, r2_enet
+
+y_pred_gb = gbr.predict(X_test)
+
+rmse_gb = np.sqrt(mean_squared_error(y_test, y_pred_gb))
+r2_gb = r2_score(y_test, y_pred_gb)
+
+rmse_gb, r2_gb
+
+pd.DataFrame({
+    "Model": ["Baseline", "Elastic Net", "Gradient Boosting"],
+    "RMSE": [rmse_baseline, rmse_enet, rmse_gb],
+    "R2 Score": [0.0, r2_enet, r2_gb]
+})
+
